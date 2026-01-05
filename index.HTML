@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>通信论文深度解析平台 (终极抗造版)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config = { theme: { extend: { colors: { brand: '#2563eb' } } } }</script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+    
+    <script>
+        window.MathJax = {
+            tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #f1f5f9; }
+        
+        .paper {
+            background: white;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            min-height: 80vh;
+            padding: 50px;
+        }
+
+        /* 优化排版 */
+        .prose h1 { color: #1e3a8a; border-bottom: 3px solid #e2e8f0; padding-bottom: 15px; margin-top: 0.5em; font-weight: 800; font-size: 2em; }
+        .prose h2 { color: #2563eb; margin-top: 1.8em; font-weight: 700; border-left: 5px solid #2563eb; padding-left: 12px; font-size: 1.5em; }
+        .prose p { margin-bottom: 1.2em; line-height: 1.8; color: #334155; text-align: justify; }
+        .prose blockquote { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 20px; color: #475569; }
+
+        /* 图表容器 */
+        .mermaid { display: flex; justify-content: center; background: white; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; margin: 30px 0; overflow-x: auto; }
+        .mermaid-error { background: #fee2e2; border: 1px solid #f87171; color: #991b1b; padding: 15px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; margin: 20px 0; font-size: 0.9em; }
+
+        .loader { width: 18px; height: 18px; border: 2px solid #fff; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; }
+        @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="py-10 px-4">
+
+<div class="max-w-5xl mx-auto space-y-8">
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+        <div class="flex items-center justify-between mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">通信论文深度解析平台 <span class="text-sm font-normal text-green-600 bg-green-50 px-2 py-1 rounded-md ml-2">Smart Fix V2</span></h1>
+            <div class="text-xs font-mono text-slate-400">Key Loaded</div>
+        </div>
+
+        <div class="grid gap-6">
+            <div id="dropZone" class="border-2 border-dashed border-slate-300 rounded-xl p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition group"
+                 onclick="document.getElementById('fileInput').click()">
+                <input type="file" id="fileInput" accept=".pdf,.doc,.docx" class="hidden" onchange="handleFile(this)">
+                <div id="uploadUi" class="group-hover:scale-105 transition duration-200">
+                    <div class="text-6xl mb-4 text-slate-300 group-hover:text-blue-400">📂</div>
+                    <div class="font-bold text-slate-600 text-xl">点击上传 PDF 论文</div>
+                </div>
+                <div id="fileUi" class="hidden">
+                    <div class="text-5xl text-blue-600 mb-3">📄</div>
+                    <div id="fileName" class="font-bold text-slate-800 text-xl"></div>
+                </div>
+            </div>
+
+            <button id="runBtn" onclick="runAnalysis()" 
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition shadow-lg shadow-blue-500/20 flex items-center justify-center gap-3 disabled:opacity-60 text-lg">
+                <span>🚀 开始深度解析</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="resultBox" class="hidden opacity-0 transition-all duration-700 transform translate-y-4">
+        <div class="paper rounded-xl prose prose-slate max-w-none">
+            <div id="outputContent"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const CONFIG = {
+        BASE_URL: 'https://api.dify.ai/v1',
+        API_KEY: 'app-aNH2KXnka1KZOmK5a5UbuKuJ', 
+        FILE_VAR: 'paper_pdf'
+    };
+
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+
+    function handleFile(input) {
+        if(input.files[0]) {
+            document.getElementById('uploadUi').classList.add('hidden');
+            document.getElementById('fileUi').classList.remove('hidden');
+            document.getElementById('fileName').innerText = input.files[0].name;
+            document.getElementById('dropZone').classList.add('border-blue-500', 'bg-blue-50');
+        }
+    }
+
+    function cleanThinkProcess(text) {
+        if (!text) return "";
+        return text.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
+    }
+
+    /**
+     * 🚑 增强版外科手术：修复换行符问题
+     */
+    function fixMermaidSyntax(code) {
+        let fixed = code;
+        
+        // 1. 修复 graph TDsubgraph 粘连
+        fixed = fixed.replace(/graph\s+([A-Z]+)subgraph/gi, 'graph $1\nsubgraph');
+        fixed = fixed.replace(/subgraph\s+"([^"]+)"(?!\n)/gi, 'subgraph "$1"\n');
+
+        // 2. 核心修复：处理 [] 内部的换行符
+        // 找到所有 [] 的内容，把里面的 \n 替换成 <br/>，并加上双引号
+        fixed = fixed.replace(/\[([\s\S]*?)\]/g, (match, content) => {
+            if (content.includes('\n')) {
+                // 将换行替换为 <br/>，并将双引号替换为单引号以防冲突
+                let cleanContent = content.replace(/\n/g, '<br/>').replace(/"/g, "'");
+                return `["${cleanContent}"]`;
+            }
+            return match; // 如果没有换行，保持原样
+        });
+
+        // 3. 熔断实验性图表
+        if (fixed.includes('xychart-beta') || fixed.includes('block-beta')) {
+            return `graph TD\nNodeError["⚠️ AI使用了实验性图表，已自动降级为文本展示"]\nstyle NodeError fill:#f9f,stroke:#333,stroke-width:2px`;
+        }
+        
+        return fixed;
+    }
+
+    async function runAnalysis() {
+        const apiKey = CONFIG.API_KEY; 
+        const fileInput = document.getElementById('fileInput');
+        const btn = document.getElementById('runBtn');
+        const resultBox = document.getElementById('resultBox');
+        const outputDiv = document.getElementById('outputContent');
+
+        if(!fileInput.files[0]) return alert('请先上传文件');
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loader"></span> 处理中...';
+        resultBox.classList.add('hidden');
+        outputDiv.innerHTML = '';
+
+        try {
+            // Upload
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('user', 'expert-user');
+            
+            const upRes = await fetch(`${CONFIG.BASE_URL}/files/upload`, {
+                method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}` }, body: formData
+            });
+            if(!upRes.ok) throw new Error("上传失败，请检查 CORS");
+            const fileData = await upRes.json();
+
+            // Run Workflow
+            resultBox.classList.remove('hidden');
+            setTimeout(() => resultBox.classList.remove('opacity-0', 'translate-y-4'), 100);
+
+            const runRes = await fetch(`${CONFIG.BASE_URL}/workflows/run`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    inputs: { [CONFIG.FILE_VAR]: { type: "document", transfer_method: "local_file", upload_file_id: fileData.id } },
+                    response_mode: "streaming",
+                    user: "expert-user"
+                })
+            });
+
+            const reader = runRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "", fullText = "";
+
+            while(true) {
+                const { done, value } = await reader.read();
+                if(done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if(data.event === 'workflow_finished') {
+                                const o = data.data.outputs;
+                                fullText = o.text || o.textString || o.answer || Object.values(o)[0];
+                            }
+                        } catch(e){}
+                    }
+                }
+            }
+
+            // Render
+            const cleanText = cleanThinkProcess(fullText);
+            outputDiv.innerHTML = marked.parse(cleanText);
+
+            if(window.MathJax) await MathJax.typesetPromise([outputDiv]);
+
+            const charts = outputDiv.querySelectorAll('.language-mermaid');
+            for(let i=0; i<charts.length; i++) {
+                const block = charts[i];
+                let rawCode = block.textContent;
+                let fixedCode = fixMermaidSyntax(rawCode); // 🚑 调用修复
+                
+                const div = document.createElement('div');
+                div.className = 'mermaid';
+                div.id = `chart-${i}`;
+                div.textContent = fixedCode;
+                block.parentElement.replaceWith(div);
+                
+                try {
+                    await mermaid.run({ nodes: [div] });
+                } catch(err) {
+                    div.className = 'mermaid-error';
+                    div.innerHTML = `⚠️ 修复失败，原始错误: ${err.message}\n尝试代码:\n${fixedCode}`;
+                }
+            }
+
+            btn.innerHTML = "重新解析";
+
+        } catch (e) {
+            alert("错误: " + e.message);
+            btn.innerHTML = "重试";
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+</body>
+</html>
